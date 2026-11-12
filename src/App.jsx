@@ -1,23 +1,33 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Analytics } from '@vercel/analytics/react';
-import { Loader2 } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LockScreen from './components/LockScreen';
 import Navbar from './components/Navbar';
+import { AppShellSkeleton, LockScreenSkeleton } from './components/Skeletons';
 import TuitionsPage from './pages/TuitionsPage';
 import TeachersPage from './pages/TeachersPage';
 
+// UI-only layout hint so initial verification renders a matching non-sensitive skeleton.
+function getLikelyAuthenticatedHint() {
+  try {
+    const raw = localStorage.getItem('tsf_auth_sync');
+    if (!raw) return false;
+    return JSON.parse(raw)?.type === 'LOGIN';
+  } catch {
+    return false;
+  }
+}
+
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen bg-linear-to-br from-blue-50 to-indigo-100/60 flex flex-col items-center justify-center p-4">
-        <div className="bg-white/80 backdrop-blur-xs p-6 rounded-2xl shadow-md border border-gray-200 flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-          <p className="text-sm font-medium text-gray-600">Verifying session...</p>
-        </div>
-      </div>
+    const variant = location.pathname === '/teachers' ? 'teacher' : 'tuition';
+    return getLikelyAuthenticatedHint() ? (
+      <AppShellSkeleton variant={variant} />
+    ) : (
+      <LockScreenSkeleton />
     );
   }
 

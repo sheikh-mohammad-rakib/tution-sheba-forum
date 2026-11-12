@@ -8,14 +8,18 @@ import {
 } from 'lucide-react';
 import TeacherCard from '../components/TeacherCard';
 import TeacherModal from '../components/TeacherModal';
+import { CardGridSkeleton, Skeleton } from '../components/Skeletons';
 import {
   getCachedTeachers,
   fetchAndSyncAllTeachers,
+  abortOngoingSync,
 } from '../services/teacherStorage';
 import { exportTeachersToCSV, exportTeachersToJSON } from '../utils/exportTeachers';
 
 const INITIAL_RENDER_COUNT = 24;
 const BATCH_INCREMENT = 24;
+const FILTER_INPUT_CLASS =
+  'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-gray-100';
 
 export default function TeachersPage() {
   const [teachers, setTeachers] = useState([]);
@@ -103,6 +107,7 @@ export default function TeachersPage() {
 
     return () => {
       isMounted = false;
+      abortOngoingSync();
     };
   }, [triggerSync]);
 
@@ -254,7 +259,7 @@ export default function TeachersPage() {
     selectedUniversity !== 'all' ||
     selectedYear !== 'all';
 
-  const skeletonItems = Array.from({ length: 6 });
+  const isInitialLoading = loading || (syncing && teachers.length === 0);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -265,7 +270,19 @@ export default function TeachersPage() {
             Teachers Directory
           </h1>
           <p className="text-gray-600">
-            Explore {filteredTeachers.length.toLocaleString()} of {teachers.length.toLocaleString()} registered public teachers
+            Explore{' '}
+            {isInitialLoading ? (
+              <Skeleton as="span" className="inline-block h-4 w-12 align-middle mx-0.5" />
+            ) : (
+              filteredTeachers.length.toLocaleString()
+            )}{' '}
+            of{' '}
+            {isInitialLoading ? (
+              <Skeleton as="span" className="inline-block h-4 w-12 align-middle mx-0.5" />
+            ) : (
+              teachers.length.toLocaleString()
+            )}{' '}
+            registered public teachers
           </p>
           <p className="text-sm text-gray-500">
             Complete registry synced with Tuition Seba Forum
@@ -336,17 +353,27 @@ export default function TeachersPage() {
           <div className="flex justify-between items-center mb-2 text-sm text-blue-900 font-semibold">
             <span className="flex items-center gap-2">
               <RotateCw className="w-4 h-4 animate-spin text-blue-600" />
-              Syncing teachers data... Page {syncProgress.page} of {syncProgress.totalPages}
+              {syncProgress.total > 0
+                ? `Syncing teachers data... Page ${syncProgress.page} of ${syncProgress.totalPages}`
+                : 'Connecting to teachers directory...'}
             </span>
-            <span>
-              {syncProgress.loaded.toLocaleString()} / {syncProgress.total.toLocaleString()} ({syncProgress.percent}%)
-            </span>
+            {syncProgress.total > 0 ? (
+              <span>
+                {syncProgress.loaded.toLocaleString()} / {syncProgress.total.toLocaleString()} ({syncProgress.percent}%)
+              </span>
+            ) : (
+              <Skeleton as="span" className="inline-block h-4 w-24 bg-blue-200/80" />
+            )}
           </div>
           <div className="w-full bg-blue-200 rounded-full h-2.5 overflow-hidden">
-            <div
-              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-              style={{ width: `${syncProgress.percent}%` }}
-            ></div>
+            {syncProgress.total > 0 ? (
+              <div
+                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${syncProgress.percent}%` }}
+              ></div>
+            ) : (
+              <div className="skeleton-shimmer bg-blue-500/80 h-2.5 rounded-full w-full"></div>
+            )}
           </div>
         </div>
       )}
@@ -390,7 +417,8 @@ export default function TeachersPage() {
               placeholder="e.g., Rahim, Math, Chittagong, CUET, Management..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isInitialLoading}
+              className={FILTER_INPUT_CLASS}
             />
           </div>
 
@@ -402,7 +430,8 @@ export default function TeachersPage() {
             <select
               value={genderFilter}
               onChange={(e) => setGenderFilter(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isInitialLoading}
+              className={FILTER_INPUT_CLASS}
             >
               <option value="all">All</option>
               <option value="female">Female</option>
@@ -418,7 +447,8 @@ export default function TeachersPage() {
             <select
               value={selectedArea}
               onChange={(e) => setSelectedArea(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isInitialLoading}
+              className={FILTER_INPUT_CLASS}
             >
               <option value="all">All Areas ({areaOptions.length})</option>
               {areaOptions.map(([area, count]) => (
@@ -439,7 +469,8 @@ export default function TeachersPage() {
             <select
               value={selectedUniversity}
               onChange={(e) => setSelectedUniversity(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isInitialLoading}
+              className={FILTER_INPUT_CLASS}
             >
               <option value="all">All Universities ({universityOptions.length})</option>
               {universityOptions.map(([uni, count]) => (
@@ -458,7 +489,8 @@ export default function TeachersPage() {
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isInitialLoading}
+              className={FILTER_INPUT_CLASS}
             >
               <option value="all">All Academic Years</option>
               {yearOptions.map(([year, count]) => (
@@ -473,7 +505,7 @@ export default function TeachersPage() {
           <div className="flex items-end">
             <button
               onClick={resetAllFilters}
-              disabled={!isFiltered}
+              disabled={!isFiltered || isInitialLoading}
               className="w-full px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold rounded-lg transition disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
             >
               Reset Filters
@@ -482,42 +514,27 @@ export default function TeachersPage() {
         </div>
 
         <p className="text-sm text-gray-600">
-          Showing <span className="font-bold text-blue-600">{Math.min(visibleCount, filteredTeachers.length).toLocaleString()}</span> of{' '}
-          <span className="font-bold text-gray-800">{filteredTeachers.length.toLocaleString()}</span> results
+          Showing{' '}
+          {isInitialLoading ? (
+            <Skeleton as="span" className="inline-block h-4 w-10 align-middle mx-0.5" />
+          ) : (
+            <span className="font-bold text-blue-600">
+              {Math.min(visibleCount, filteredTeachers.length).toLocaleString()}
+            </span>
+          )}{' '}
+          of{' '}
+          {isInitialLoading ? (
+            <Skeleton as="span" className="inline-block h-4 w-12 align-middle mx-0.5" />
+          ) : (
+            <span className="font-bold text-gray-800">{filteredTeachers.length.toLocaleString()}</span>
+          )}{' '}
+          results
         </p>
       </div>
 
       {/* Cards Grid */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {skeletonItems.map((_, index) => (
-            <div
-              key={`skeleton-${index}`}
-              className="bg-white rounded-lg shadow-md border border-gray-200 p-5 animate-pulse min-h-130 flex flex-col"
-            >
-              <div className="flex justify-between items-start mb-4 pb-3 border-b border-gray-100">
-                <div className="space-y-2">
-                  <div className="h-5 w-28 bg-gray-200 rounded"></div>
-                  <div className="h-3 w-20 bg-gray-200 rounded"></div>
-                </div>
-                <div className="h-5 w-16 bg-gray-200 rounded"></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="h-12 bg-gray-100 rounded"></div>
-              </div>
-              <div className="h-16 bg-gray-100 rounded mb-4"></div>
-              <div className="space-y-2 mb-4">
-                <div className="h-3 w-3/4 bg-gray-100 rounded"></div>
-                <div className="h-3 w-2/3 bg-gray-100 rounded"></div>
-                <div className="h-3 w-1/2 bg-gray-100 rounded"></div>
-              </div>
-              <div className="mt-auto h-10 bg-gray-100 rounded"></div>
-            </div>
-          ))}
-        </div>
+      {isInitialLoading ? (
+        <CardGridSkeleton variant="teacher" count={6} />
       ) : visibleTeachers.length > 0 ? (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import TuitionCard from '../components/TuitionCard';
+import { CardGridSkeleton, Skeleton } from '../components/Skeletons';
 
 const getDaysPerWeek = (dayValue) => {
   if (!dayValue) return null;
@@ -126,10 +127,6 @@ export default function TuitionsPage() {
     maxSalary,
   ]);
 
-  const displayFilteredCount = loading ? '...' : filteredData.length;
-  const displayTotalCount = loading ? '...' : tuitionData.length;
-  const skeletonItems = Array.from({ length: 6 });
-
   const resetFilters = () => {
     setSearchTerm('');
     setSalaryMin('6000');
@@ -164,7 +161,19 @@ export default function TuitionsPage() {
           Available Tuitions
         </h1>
         <p className="text-gray-600">
-          Explore {displayFilteredCount} of {displayTotalCount} available tuition opportunities
+          Explore{' '}
+          {loading ? (
+            <Skeleton as="span" className="inline-block h-4 w-8 align-middle mx-0.5" />
+          ) : (
+            filteredData.length
+          )}{' '}
+          of{' '}
+          {loading ? (
+            <Skeleton as="span" className="inline-block h-4 w-10 align-middle mx-0.5" />
+          ) : (
+            tuitionData.length
+          )}{' '}
+          available tuition opportunities
         </p>
         <p className="text-sm text-gray-500 mt-1">Showing tuitions with 3 days/week</p>
       </div>
@@ -266,46 +275,19 @@ export default function TuitionsPage() {
         </div>
 
         <p className="text-sm text-gray-600">
-          Showing <span className="font-bold text-blue-600">{displayFilteredCount}</span> results
+          Showing{' '}
+          {loading ? (
+            <Skeleton as="span" className="inline-block h-4 w-8 align-middle mx-0.5" />
+          ) : (
+            <span className="font-bold text-blue-600">{filteredData.length}</span>
+          )}{' '}
+          results
         </p>
       </div>
 
       {/* Cards Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {skeletonItems.map((_, index) => (
-            <div
-              key={`skeleton-${index}`}
-              className="bg-white rounded-lg shadow-xs border border-gray-200 p-5 animate-pulse min-h-130 flex flex-col"
-            >
-              <div className="flex justify-between items-start mb-4 pb-3 border-b border-gray-100">
-                <div className="space-y-2">
-                  <div className="h-5 w-20 bg-gray-200 rounded"></div>
-                  <div className="h-3 w-28 bg-gray-200 rounded"></div>
-                </div>
-                <div className="h-5 w-16 bg-gray-200 rounded"></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="h-12 bg-gray-100 rounded"></div>
-              </div>
-              <div className="h-16 bg-gray-100 rounded mb-4"></div>
-              <div className="space-y-2 mb-4">
-                <div className="h-3 w-3/4 bg-gray-100 rounded"></div>
-                <div className="h-3 w-2/3 bg-gray-100 rounded"></div>
-                <div className="h-3 w-1/2 bg-gray-100 rounded"></div>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="h-12 bg-gray-100 rounded"></div>
-                <div className="col-span-2 h-12 bg-gray-100 rounded"></div>
-              </div>
-              <div className="mt-auto h-10 bg-gray-100 rounded"></div>
-            </div>
-          ))}
-        </div>
+        <CardGridSkeleton variant="tuition" count={6} />
       ) : filteredData.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredData.map((tuition) => (
