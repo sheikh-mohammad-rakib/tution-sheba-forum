@@ -101,7 +101,7 @@ function DetailRowListSkeleton({ headingWidth = 'w-36', rows }) {
 export function TuitionCardSkeleton() {
   return (
     <div className="bg-white rounded-lg shadow-md border border-gray-200 p-5">
-      <CardHeaderSkeleton titleWidth="w-20" subtitleWidth="w-32" badgeCount={2} />
+      <CardHeaderSkeleton titleWidth="w-20" subtitleWidth="w-44" badgeCount={2} />
       <CardInfoGridSkeleton />
 
       <div className="mb-4 p-3 bg-yellow-50/70 rounded space-y-1.5">

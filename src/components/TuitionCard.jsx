@@ -1,11 +1,36 @@
 export default function TuitionCard({ tuition }) {
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
+  };
+
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'N/A';
+    const datePart = date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+    const timePart = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    return `${datePart} at ${timePart}`;
+  };
+
+  const getFullTimestamp = (dateString) => {
+    if (!dateString) return undefined;
+    const date = new Date(dateString);
+    return isNaN(date.getTime()) ? undefined : date.toLocaleString('en-US');
   };
 
   const isUrgent = tuition.isUrgent;
@@ -15,12 +40,17 @@ export default function TuitionCard({ tuition }) {
   return (
     <div className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow border border-gray-200 p-5">
       {/* Header with Code and Badges */}
-      <div className="flex justify-between items-start mb-4 pb-3 border-b">
-        <div>
+      <div className="flex justify-between items-start mb-4 pb-3 border-b gap-2">
+        <div className="min-w-0">
           <h3 className="text-xl font-bold text-blue-700">#{tuition.tuitionCode}</h3>
-          <p className="text-sm text-gray-500">Created: {formatDate(tuition.createdAt)}</p>
+          <p
+            className="text-sm text-gray-500"
+            title={getFullTimestamp(tuition.createdAt)}
+          >
+            Posted: {formatDateTime(tuition.createdAt)}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap justify-end shrink-0">
           {isCancelled && (
             <span className="bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-semibold">Cancelled</span>
           )}
