@@ -55,38 +55,55 @@ export default function TeachersPage() {
   // Observer sentinel ref
   const observerTarget = useRef(null);
 
+  // Guard against concurrent syncs without triggering re-render dependency cascades
+  const syncingRef = useRef(false);
+  const isMountedRef = useRef(true);
+
   // Sync data from API
   const triggerSync = useCallback(async () => {
-    if (syncing) return;
+    if (syncingRef.current) return;
     try {
+      syncingRef.current = true;
       setSyncing(true);
       setSyncError(null);
       setSyncProgress({ loaded: 0, total: 0, percent: 0, page: 1, totalPages: 1 });
 
       const allData = await fetchAndSyncAllTeachers((progress) => {
-        setSyncProgress(progress);
+        if (isMountedRef.current) {
+          setSyncProgress(progress);
+        }
       });
 
+      if (!isMountedRef.current) return;
       setTeachers(allData);
       setLastUpdated(new Date());
       setVisibleCount(INITIAL_RENDER_COUNT);
     } catch (err) {
+      if (err.name === 'AbortError' || err.message === 'Sync aborted') {
+        // Intentionally aborted (e.g. component unmounted or navigated away)
+        return;
+      }
       console.error('Failed to sync teachers:', err);
-      setSyncError(err.message || 'Failed to download teacher data from API.');
+      if (isMountedRef.current) {
+        setSyncError(err.message || 'Failed to download teacher data from API.');
+      }
     } finally {
-      setSyncing(false);
+      syncingRef.current = false;
+      if (isMountedRef.current) {
+        setSyncing(false);
+      }
     }
-  }, [syncing]);
+  }, []);
 
   // Load from IndexedDB on initial mount
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = true;
 
     async function loadInitial() {
       try {
         setLoading(true);
         const cached = await getCachedTeachers();
-        if (!isMounted) return;
+        if (!isMountedRef.current) return;
 
         if (cached && cached.teachers && cached.teachers.length > 0) {
           setTeachers(cached.teachers);
@@ -99,14 +116,16 @@ export default function TeachersPage() {
         }
       } catch (err) {
         console.error('Error reading cache:', err);
-        setLoading(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       }
     }
 
     loadInitial();
 
     return () => {
-      isMounted = false;
+      isMountedRef.current = false;
       abortOngoingSync();
     };
   }, [triggerSync]);
