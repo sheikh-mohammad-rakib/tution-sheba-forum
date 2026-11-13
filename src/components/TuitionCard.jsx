@@ -1,9 +1,12 @@
+const BD_TIMEZONE = 'Asia/Dhaka';
+
 export default function TuitionCard({ tuition }) {
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return 'N/A';
     return date.toLocaleDateString('en-US', {
+      timeZone: BD_TIMEZONE,
       year: 'numeric',
       month: 'short',
       day: 'numeric'
@@ -15,11 +18,13 @@ export default function TuitionCard({ tuition }) {
     const date = new Date(dateString);
     if (isNaN(date.getTime())) return 'N/A';
     const datePart = date.toLocaleDateString('en-US', {
+      timeZone: BD_TIMEZONE,
       year: 'numeric',
       month: 'short',
       day: 'numeric'
     });
     const timePart = date.toLocaleTimeString('en-US', {
+      timeZone: BD_TIMEZONE,
       hour: 'numeric',
       minute: '2-digit',
       hour12: true
@@ -30,7 +35,9 @@ export default function TuitionCard({ tuition }) {
   const getFullTimestamp = (dateString) => {
     if (!dateString) return undefined;
     const date = new Date(dateString);
-    return isNaN(date.getTime()) ? undefined : date.toLocaleString('en-US');
+    return isNaN(date.getTime())
+      ? undefined
+      : `${date.toLocaleString('en-US', { timeZone: BD_TIMEZONE })} (BST)`;
   };
 
   const isUrgent = tuition.isUrgent;
