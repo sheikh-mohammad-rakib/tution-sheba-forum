@@ -1,8 +1,7 @@
 import { parseCookies, verifyJwt } from './lib/auth-helper.js';
+import { fetchUpstream } from './lib/upstream.js';
 
 const COOKIE_NAME = 'admin_session';
-const UPSTREAM_TIMEOUT_MS = 15000;
-const UNAVAILABLE_STATUSES = new Set([502, 503, 504]);
 const UNAVAILABLE_CODE = 'UPSTREAM_UNAVAILABLE';
 const UNAVAILABLE_MESSAGE =
   'The tuition data service is temporarily unavailable. Please try again shortly.';
@@ -17,7 +16,6 @@ export async function handleTuitionsRequest({ method, headers }) {
   }
 
   const jwtSecret = process.env.JWT_SECRET;
-  const upstreamBase = process.env.UPSTREAM_API_BASE || 'https://api.tuitionsebaforum.com';
 
   // 1. Authorize Request
   const cookies = parseCookies(headers.cookie || headers.Cookie);
@@ -32,61 +30,34 @@ export async function handleTuitionsRequest({ method, headers }) {
     };
   }
 
-  // 2. Fetch from private upstream
-  try {
-    const upstreamUrl = `${upstreamBase.replace(/\/+$/, '')}/api/tuition/available-web`;
-    const response = await fetch(upstreamUrl, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TuitionSheba/1.0',
-      },
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    });
+  // 2. Fetch from the private upstream (with host failover)
+  const upstream = await fetchUpstream('/api/tuition/available-web');
 
-    if (!response.ok) {
-      // 502/503/504 almost always means the upstream host itself is down or
-      // suspended, so surface a stable code the UI can recognise as transient.
-      const unavailable = UNAVAILABLE_STATUSES.has(response.status);
-      return {
-        statusCode: unavailable ? 503 : response.status,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store',
-        },
-        body: JSON.stringify(
-          unavailable
-            ? { error: UNAVAILABLE_MESSAGE, code: UNAVAILABLE_CODE, upstreamStatus: response.status }
-            : { error: `Upstream error: ${response.statusText || response.status}`, code: 'UPSTREAM_ERROR', upstreamStatus: response.status }
-        ),
-      };
-    }
-
-    const data = await response.text();
+  if (upstream.ok) {
     return {
       statusCode: 200,
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'private, no-cache, no-store, must-revalidate',
       },
-      body: data,
-    };
-  } catch (err) {
-    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
-    return {
-      statusCode: timedOut ? 504 : 502,
-      headers: {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-      },
-      body: JSON.stringify({
-        error: timedOut
-          ? 'The tuition data service took too long to respond. Please try again shortly.'
-          : 'The tuition data service is unreachable right now. Please try again shortly.',
-        code: UNAVAILABLE_CODE,
-        details: err.message,
-      }),
+      body: upstream.body,
     };
   }
+
+  return {
+    statusCode: upstream.timedOut ? 504 : 503,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+    body: JSON.stringify({
+      error: upstream.timedOut
+        ? 'The tuition data service took too long to respond. Please try again shortly.'
+        : UNAVAILABLE_MESSAGE,
+      code: UNAVAILABLE_CODE,
+      upstreamStatus: upstream.status || undefined,
+    }),
+  };
 }
 
 export async function handler(event, context) {

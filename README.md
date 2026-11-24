@@ -52,10 +52,12 @@ Create a `.env` file at the root (see `.env.example`):
 ```bash
 ADMIN_PASSWORD=your-secure-password
 JWT_SECRET=your-random-32-char-jwt-secret
-UPSTREAM_API_BASE=https://api.tuitionsebaforum.com
+UPSTREAM_API_BASE=https://tuition-seba-backend-production-49a7d084.up.railway.app
 ```
 
 In production, configure these same variables in the Netlify Dashboard (**Site configuration → Environment variables**).
+
+The serverless proxy tries `UPSTREAM_API_BASE` first, then `UPSTREAM_API_BASE_FALLBACK`, then the built-in Railway host, so a suspended deployment does not take the dashboard down. See `netlify/functions/lib/upstream.js`.
 
 ### Run the dev server
 
@@ -108,7 +110,7 @@ Styling is done with Tailwind utility classes directly in JSX. See [`STYLE_GUIDE
 
 ## Data Source
 
-Live data is loaded from the Tuition Seba backend API at runtime. `tuitions.json` is included as a reference shape for a tuition record:
+Live data is loaded from the Tuition Seba backend API at runtime, through the authenticated Netlify proxy in `netlify/functions/` (currently served from `https://tuition-seba-backend-production-49a7d084.up.railway.app`). `tuitions.json` is included as a reference shape for a tuition record:
 
 ```json
 {
