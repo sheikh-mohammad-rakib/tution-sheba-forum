@@ -1,6 +1,11 @@
 import { parseCookies, verifyJwt } from './lib/auth-helper.js';
 
 const COOKIE_NAME = 'admin_session';
+const UPSTREAM_TIMEOUT_MS = 15000;
+const UNAVAILABLE_STATUSES = new Set([502, 503, 504]);
+const UNAVAILABLE_CODE = 'UPSTREAM_UNAVAILABLE';
+const UNAVAILABLE_MESSAGE =
+  'The tuition data service is temporarily unavailable. Please try again shortly.';
 
 export async function handleTuitionsRequest({ method, headers }) {
   if (method !== 'GET') {
@@ -35,13 +40,24 @@ export async function handleTuitionsRequest({ method, headers }) {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TuitionSheba/1.0',
       },
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
     });
 
     if (!response.ok) {
+      // 502/503/504 almost always means the upstream host itself is down or
+      // suspended, so surface a stable code the UI can recognise as transient.
+      const unavailable = UNAVAILABLE_STATUSES.has(response.status);
       return {
-        statusCode: response.status,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: `Upstream error: ${response.statusText}` }),
+        statusCode: unavailable ? 503 : response.status,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        },
+        body: JSON.stringify(
+          unavailable
+            ? { error: UNAVAILABLE_MESSAGE, code: UNAVAILABLE_CODE, upstreamStatus: response.status }
+            : { error: `Upstream error: ${response.statusText || response.status}`, code: 'UPSTREAM_ERROR', upstreamStatus: response.status }
+        ),
       };
     }
 
@@ -55,10 +71,20 @@ export async function handleTuitionsRequest({ method, headers }) {
       body: data,
     };
   } catch (err) {
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     return {
-      statusCode: 502,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Failed to retrieve data from upstream', details: err.message }),
+      statusCode: timedOut ? 504 : 502,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      },
+      body: JSON.stringify({
+        error: timedOut
+          ? 'The tuition data service took too long to respond. Please try again shortly.'
+          : 'The tuition data service is unreachable right now. Please try again shortly.',
+        code: UNAVAILABLE_CODE,
+        details: err.message,
+      }),
     };
   }
 }
