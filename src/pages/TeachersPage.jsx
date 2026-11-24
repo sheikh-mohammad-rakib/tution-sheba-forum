@@ -85,7 +85,13 @@ export default function TeachersPage() {
       }
       console.error('Failed to sync teachers:', err);
       if (isMountedRef.current) {
-        setSyncError(err.message || 'Failed to download teacher data from API.');
+        const unavailable = err.code === 'UPSTREAM_UNAVAILABLE';
+        setSyncError({
+          code: err.code || 'UNKNOWN',
+          message: unavailable
+            ? 'The teacher data service is temporarily unavailable. Any previously synced teachers stay available below.'
+            : err.message || 'Failed to download teacher data from API.',
+        });
       }
     } finally {
       syncingRef.current = false;
@@ -402,8 +408,10 @@ export default function TeachersPage() {
         <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
           <div className="flex-1 text-sm text-red-800">
-            <p className="font-bold">Sync Failed</p>
-            <p>{syncError}</p>
+            <p className="font-bold">
+              {syncError.code === 'UPSTREAM_UNAVAILABLE' ? 'Data Service Unavailable' : 'Sync Failed'}
+            </p>
+            <p>{syncError.message}</p>
           </div>
           <button
             onClick={triggerSync}

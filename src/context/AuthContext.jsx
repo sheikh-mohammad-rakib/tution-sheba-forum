@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { clearTeachersCache, abortOngoingSync } from '../services/teacherStorage';
+import { clearTuitionCache } from '../services/tuitionStorage';
 
 const AuthContext = createContext(null);
 const AUTH_CHANNEL_NAME = 'tsf_auth_channel';
@@ -234,6 +235,9 @@ export function AuthProvider({ children }) {
     } catch (err) {
       console.warn('Failed to clear teacher storage during logout:', err);
     }
+
+    // Listings cached in localStorage must not outlive the session either
+    clearTuitionCache();
 
     setIsAuthenticated(false);
     setAuthError(null);

@@ -1,6 +1,13 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { AlertTriangle, RotateCw, WifiOff } from 'lucide-react';
 import TuitionCard from '../components/TuitionCard';
 import { CardGridSkeleton, Skeleton } from '../components/Skeletons';
+import { readTuitionCache, writeTuitionCache } from '../services/tuitionStorage';
+
+// Automatic retry schedule for transient upstream failures (3s, 6s, 12s, 24s).
+const MAX_AUTO_RETRIES = 4;
+const RETRY_BASE_DELAY_MS = 3000;
+const RETRY_MAX_DELAY_MS = 30000;
 
 const getDaysPerWeek = (dayValue) => {
   if (!dayValue) return null;
@@ -19,43 +26,153 @@ const getStudentGenderKind = (studentValue) => {
   return 'unknown';
 };
 
+const formatCacheAge = (savedAt) => {
+  const saved = new Date(savedAt);
+  if (Number.isNaN(saved.getTime())) return 'earlier';
+  const minutes = Math.round((Date.now() - saved.getTime()) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+};
+
 export default function TuitionsPage() {
   const [tuitionData, setTuitionData] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  const [cacheSavedAt, setCacheSavedAt] = useState(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [salaryMin, setSalaryMin] = useState('6000');
   const [salaryMax, setSalaryMax] = useState('');
   const [teacherPreference, setTeacherPreference] = useState('male');
   const [studentGender, setStudentGender] = useState('female');
 
-  // Fetch data from API
-  useEffect(() => {
-    const fetchTuitions = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await fetch('/.netlify/functions/tuitions', {
-          credentials: 'include',
-        });
-        if (response.status === 401) {
-          throw new Error('Session expired or unauthorized. Please refresh and log in.');
-        }
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-        const data = await response.json();
-        setTuitionData(Array.isArray(data) ? data : data.data || []);
-      } catch (err) {
-        setError(err.message);
-        console.error('Failed to fetch tuitions:', err);
-      } finally {
-        setLoading(false);
+  const abortRef = useRef(null);
+  const isMountedRef = useRef(true);
+  const hasDataRef = useRef(false);
+  const retryTimerRef = useRef(null);
+
+  // Fetch data from API, keeping the last good snapshot on screen if it fails.
+  const fetchTuitions = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    if (hasDataRef.current) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const response = await fetch('/.netlify/functions/tuitions', {
+        credentials: 'include',
+        signal: controller.signal,
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        const authErr = new Error('Session expired or unauthorized. Please refresh and log in.');
+        authErr.fatal = true;
+        throw authErr;
       }
-    };
+
+      if (!response.ok) {
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch {
+          // Upstream returned HTML or an empty body; fall back to the status code.
+        }
+        const httpErr = new Error(
+          payload?.error || `The data service responded with ${response.status}.`
+        );
+        httpErr.code = payload?.code || 'HTTP_ERROR';
+        httpErr.status = response.status;
+        throw httpErr;
+      }
+
+      const data = await response.json();
+      if (controller.signal.aborted || !isMountedRef.current) return;
+
+      const list = Array.isArray(data) ? data : data.data || [];
+      hasDataRef.current = true;
+      setTuitionData(list);
+      setError(null);
+      setCacheSavedAt(null);
+      setRetryAttempt(0);
+      writeTuitionCache(list);
+    } catch (err) {
+      if (err.name === 'AbortError' || controller.signal.aborted) return;
+      if (!isMountedRef.current) return;
+
+      console.error('Failed to fetch tuitions:', err);
+      setError({
+        message: err.message,
+        code: err.code || 'NETWORK_ERROR',
+        fatal: Boolean(err.fatal),
+      });
+
+      // Only transient failures are worth retrying; auth failures need a re-login.
+      if (!err.fatal) {
+        setRetryAttempt((attempt) => attempt + 1);
+      }
+    } finally {
+      // A superseded request (aborted by a newer retry or unmount) must not
+      // clear the loading state of the request that replaced it.
+      if (isMountedRef.current && abortRef.current === controller) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, []);
+
+  // Seed from the last successful snapshot, then revalidate in the background.
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    const cached = readTuitionCache();
+    if (cached) {
+      hasDataRef.current = true;
+      setTuitionData(cached.tuitions);
+      setCacheSavedAt(cached.savedAt);
+      setLoading(false);
+    }
 
     fetchTuitions();
-  }, []);
+
+    return () => {
+      isMountedRef.current = false;
+      clearTimeout(retryTimerRef.current);
+      abortRef.current?.abort();
+    };
+  }, [fetchTuitions]);
+
+  // Exponential backoff while the upstream stays down.
+  useEffect(() => {
+    if (!error || error.fatal) return;
+    if (retryAttempt === 0 || retryAttempt > MAX_AUTO_RETRIES) return;
+
+    const delay = Math.min(
+      RETRY_BASE_DELAY_MS * 2 ** (retryAttempt - 1),
+      RETRY_MAX_DELAY_MS
+    );
+    retryTimerRef.current = setTimeout(fetchTuitions, delay);
+
+    return () => clearTimeout(retryTimerRef.current);
+  }, [error, retryAttempt, fetchTuitions]);
+
+  const retriesExhausted = retryAttempt > MAX_AUTO_RETRIES;
+  const isStale = Boolean(error) && tuitionData.length > 0;
+
+  // A manual retry restarts the backoff cycle instead of waiting out the pause.
+  const retryNow = useCallback(() => {
+    setRetryAttempt(0);
+    fetchTuitions();
+  }, [fetchTuitions]);
 
   // Extract min/max salary for reference
   const salaryValues = tuitionData
@@ -135,18 +252,31 @@ export default function TuitionsPage() {
     setStudentGender('female');
   };
 
-  // Error state
-  if (error) {
+  // Error state (no snapshot to fall back on)
+  if (error && tuitionData.length === 0) {
     return (
       <div className="py-12 px-4 flex items-center justify-center">
-        <div className="bg-white rounded-xl shadow-md p-8 max-w-md text-center border border-red-200">
-          <h2 className="text-2xl font-bold text-red-600 mb-2">Error Loading Data</h2>
-          <p className="text-gray-700 mb-4">{error}</p>
+        <div className="bg-white rounded-xl shadow-md p-8 max-w-md text-center border border-amber-200">
+          <div className="mx-auto mb-4 w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center">
+            <WifiOff className="w-6 h-6 text-amber-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            {error.fatal ? 'Session Expired' : 'Data Temporarily Unavailable'}
+          </h2>
+          <p className="text-gray-700 mb-2">{error.message}</p>
+          <p className="text-sm text-gray-500 mb-6">
+            {error.fatal
+              ? 'Refresh the page and log in again to continue.'
+              : retriesExhausted
+                ? 'We retried automatically and the service is still down. Nothing is wrong on your side.'
+                : 'Retrying automatically — you can also retry right now.'}
+          </p>
           <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition"
+            onClick={retryNow}
+            disabled={refreshing}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
-            Try Again
+            {refreshing ? 'Retrying…' : 'Try Again'}
           </button>
         </div>
       </div>
@@ -155,6 +285,30 @@ export default function TuitionsPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Stale snapshot banner */}
+      {isStale && (
+        <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm text-amber-900">
+            <p className="font-bold">Showing saved data</p>
+            <p>
+              The live tuition service is unavailable right now, so you are seeing the last
+              snapshot{cacheSavedAt ? ` from ${formatCacheAge(cacheSavedAt)}` : ''}.
+              {retriesExhausted
+                ? ' Automatic retries have paused.'
+                : ' Retrying automatically…'}
+            </p>
+          </div>
+          <button
+            onClick={retryNow}
+            disabled={refreshing}
+            className="px-3 py-1 bg-amber-600 text-white rounded text-xs font-semibold hover:bg-amber-700 transition disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+          >
+            {refreshing ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-2">
@@ -176,6 +330,12 @@ export default function TuitionsPage() {
           available tuition opportunities
         </p>
         <p className="text-sm text-gray-500 mt-1">Showing tuitions with 3 days/week</p>
+        {refreshing && (
+          <p className="text-sm text-blue-600 mt-1 flex items-center gap-2">
+            <RotateCw className="w-3.5 h-3.5 animate-spin" />
+            Updating live data…
+          </p>
+        )}
       </div>
 
       {/* Filter Controls */}

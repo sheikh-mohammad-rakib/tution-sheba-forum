@@ -5,6 +5,7 @@ A small React + Vite frontend that lists available tuition opportunities fetched
 ## Features
 
 - **Protected Access**: Master password lock screen with brute-force rate limiting and httpOnly JWT session cookies
+- **Resilient data states**: clear "temporarily unavailable" screens, exponential-backoff auto-retry, and a last-good snapshot so listings stay readable while the upstream API is down
 - **Tuition Opportunities**: Authenticated access to available tuition listings via private serverless proxy
   - Search across class, subject, city, area, and tuition code
   - Filter by teacher preference (male / female / all)

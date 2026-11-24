@@ -131,7 +131,18 @@ async function fetchTeacherPage(page, limit = 1000, signal) {
   }
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`);
+    let payload = null;
+    try {
+      payload = await res.json();
+    } catch {
+      // Upstream returned HTML or an empty body; fall back to the status code.
+    }
+    const err = new Error(
+      payload?.error || `API error: ${res.status} ${res.statusText}`
+    );
+    err.code = payload?.code || 'HTTP_ERROR';
+    err.status = res.status;
+    throw err;
   }
 
   return await res.json();
